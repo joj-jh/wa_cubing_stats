@@ -1,57 +1,78 @@
-use std::{collections::HashMap, io::Write};
-
+use csv::{ReaderBuilder, Reader, DeserializeRecordsIntoIter};
+use rustc_hash::FxHashSet;
 use tokio::{fs::File, io::AsyncWriteExt};
+use macros::struct_from_tsv;
+use serde::{de::DeserializeOwned};
 
-use sqlx::{Sqlite, SqlitePool, Row, migrate::MigrateDatabase};
+pub trait Table {
+    const PATH: & 'static str;
+    fn Read<'a>() -> Result<DeserializeRecordsIntoIter<std::fs::File, Self>, csv::Error> 
+    where Self: Sized + serde::de::DeserializeOwned {
+        ReaderBuilder::new().delimiter(b'\t').from_path(Self::PATH).map(|r| r.into_deserialize::<Self>())
+    }
+}
 
-const DB_URL: &str = "sqlite://sqlite.db";
+// This macro is heinous (but I wanted to try writing a macro and this was a simple opportunity)
+// The first value is the name of the struct, and the header info from the TSV can just be pasted in 
+// to create the struct fields
+struct_from_tsv!(WCACompetition id	name	cityName	countryId	information	venue	venueAddress	venueDetails	external_website	cellName	latitude	longitude	cancelled	eventSpecs	wcaDelegate	organiser	year	month	day	endMonth	endDay);
+impl Table for WCACompetition {
+    const PATH: & 'static str = "./data/WCA_export_Competitions.tsv";
+}
+
+struct_from_tsv!(WCAPerson subid   name    countryId       gender  id);
+impl Table for WCAPerson {
+    const PATH: & 'static str = "./data/WCA_export_Persons.tsv";
+}
+
+struct_from_tsv!(WCAResult competitionId   eventId roundTypeId     pos     best    average personName      personId        formatId        value1 value2   value3  value4  value5  regionalSingleRecord    regionalAverageRecord   personCountryId);
+impl Table for WCAResult {
+    const PATH: & 'static str = "./data/WCA_export_Results.tsv";
+}
+
+pub struct Competitor {
+    pub results: Vec<WCAResult>,
+    pub 
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+
     // let info = reqwest::get("https://www.worldcubeassociation.org/api/v0/export/public")
     //     .await?
     //     .json::<serde_json::Value>()
     //     .await?;
 
-
-    // let mut url = info.get("sql_url").unwrap().as_str().unwrap();
+    // let mut url = info.get("tsv_url").unwrap().as_str().unwrap();
 
     // let mut tmp = tempfile::tempfile().unwrap();
-    // println!("{}", url);
 
     // let zipped = reqwest::get(url).await?.bytes().await?;
     // tmp.write_all(&zipped[..]);
     // let mut zip = zip::ZipArchive::new(tmp).unwrap();
-    // zip.extract("./migrations");
+    // zip.extract("./data");
 
-    Sqlite::create_database(DB_URL).await;
+    let wa_comps = WCACompetition::Read()?
+        .into_iter()
+        .filter(|c| c.as_ref().is_ok_and(|v| v.cityName.contains("Western Australia") ))
+        .map(|c| c.unwrap())
+        .collect::<Vec::<WCACompetition>>();
 
-    let db = SqlitePool::connect(DB_URL).await.unwrap();
+    let wa_compID_hash = FxHashSet::from_iter(
+        wa_comps
+        .iter()
+        .map(|c| c.id.clone())
+    );
 
-    let crate_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let migrations = std::path::Path::new(&crate_dir).join("./migrations");
-    match sqlx::migrate::Migrator::new(migrations)
-        .await
-        .unwrap()
-        .run(&db)
-        .await {
-            Ok(_) => println!("successfully ran migration"),
-            Err(error) => panic!("error during migration: {}", error),
-        };
+    let all_wa_results = WCAResult::Read()?
+        .into_iter()
+        .filter(|r| r.as_ref().is_ok_and(|v| wa_compID_hash.contains(&v.competitionId) ))
+        .map(|r| r.unwrap())
+        .collect::<Vec::<WCAResult>>();
 
-    let comps = sqlx::query(
-        "SELECT TABLE_NAME
-        FROM INFORMATION_SCHEMA.TABLES
-        WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_CATALOG='dbName'"
-    )
-    .fetch_all(&db)
-    .await
-    .unwrap();
+    let 
 
-    for (idx, row) in comps.iter().enumerate().take(10) {
-        println!("[{}]: {:?}", idx, row.get::<String, &str>("name"));
-    }
+
 
     Ok(())
-
 }
