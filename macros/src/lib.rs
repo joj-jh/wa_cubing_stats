@@ -9,7 +9,7 @@ pub fn struct_from_tsv(_input: TokenStream) -> TokenStream {
 
     proc_macro::TokenStream::from(
         quote! {
-            #[derive(Debug, serde::Deserialize)]
+            #[derive(Debug, serde::Deserialize, Clone)]
             pub struct #name {
                 #(pub #input : String),*
             }
