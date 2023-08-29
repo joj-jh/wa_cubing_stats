@@ -1,20 +1,8 @@
 #![recursion_limit = "1024"]
-
-use std::env::home_dir;
-use std::f32::consts::E;
-use std::mem::{self, Discriminant};
-use std::string::ParseError;
-use std::time::Duration;
-use std::{str::FromStr, num::ParseIntError};
-use std::ops::Add;
 use std::io::Write;
-use csv::{ReaderBuilder, Reader, DeserializeRecordsIntoIter};
+use csv::{ReaderBuilder, DeserializeRecordsIntoIter};
 use rustc_hash::{FxHashSet, FxHashMap};
-use serde::__private::de;
-use serde_json::value::Index;
-use tokio::{fs::File, io::AsyncWriteExt};
 use macros::struct_from_tsv;
-use serde::{de::DeserializeOwned};
 
 pub trait Table {
     const PATH: & 'static str;
@@ -551,19 +539,19 @@ pub struct RankPage<T> where T: PageItem {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
-    // let info = reqwest::get("https://www.worldcubeassociation.org/api/v0/export/public")
-    //     .await?
-    //     .json::<serde_json::Value>()
-    //     .await?;
+    let info = reqwest::get("https://www.worldcubeassociation.org/api/v0/export/public")
+        .await?
+        .json::<serde_json::Value>()
+        .await?;
 
-    // let mut url = info.get("tsv_url").unwrap().as_str().unwrap();
+    let mut url = info.get("tsv_url").unwrap().as_str().unwrap();
 
-    // let mut tmp = tempfile::tempfile().unwrap();
+    let mut tmp = tempfile::tempfile().unwrap();
 
-    // let zipped = reqwest::get(url).await?.bytes().await?;
-    // tmp.write_all(&zipped[..]);
-    // let mut zip = zip::ZipArchive::new(tmp).unwrap();
-    // zip.extract("./data");
+    let zipped = reqwest::get(url).await?.bytes().await?;
+    tmp.write_all(&zipped[..]);
+    let mut zip = zip::ZipArchive::new(tmp).unwrap();
+    zip.extract("./data");
 
     println!("Getting WA Comps");
     let wa_comps = WCACompetition::Read()?
