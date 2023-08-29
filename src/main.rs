@@ -500,7 +500,7 @@ impl Site {
 
         let links = self.pages
         .iter()
-        .map(|p| format!(r##"<a href="{}" class="list-group-item list-group-item-action">{}</a>"##, self.web_url.to_string() + "/" + &p.path, p.title, ))
+        .map(|p| format!(r##"<a href="{}" class="list-group-item list-group-item-action">{}</a>"##, p.path, p.title, ))
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -622,7 +622,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Total:{}", wa_cubers.len());
 
-    let mut site = Site::new("idk");
+    let mut site = Site::new("");
 
     let mut single_sor_hashmap = FxHashMap::from_iter(
         wa_cubers.iter()
