@@ -874,7 +874,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.28",
- "typed-html",
 ]
 
 [[package]]

@@ -1,6 +1,10 @@
 #![recursion_limit = "1024"]
 
+use std::env::home_dir;
+use std::f32::consts::E;
 use std::mem::{self, Discriminant};
+use std::string::ParseError;
+use std::time::Duration;
 use std::{str::FromStr, num::ParseIntError};
 use std::ops::Add;
 use std::io::Write;
@@ -11,7 +15,6 @@ use serde_json::value::Index;
 use tokio::{fs::File, io::AsyncWriteExt};
 use macros::struct_from_tsv;
 use serde::{de::DeserializeOwned};
-use typed_html::{html, text, dom::DOMTree, elements::FlowContent, elements::span, dom::TextNode, elements::td};
 
 pub trait Table {
     const PATH: & 'static str;
@@ -74,21 +77,21 @@ impl ResultValue {
         if eventId == "333mbf" || eventId == "333mbo" { // This whole if clause is smelly
             let (mut solved, mut attempted, mut time) = ("x".parse::<isize>(), "x".parse::<isize>(), "x".parse::<isize>()); 
             if eventId == "333mbo" {
-                solved = s.chars().skip(1).take(2).collect::<String>().parse::<isize>().map(|r| 99 - r );
-                attempted = s.chars().skip(3).take(2).collect::<String>().parse::<isize>();
-                time = s.chars().skip(5).take(5).collect::<String>().parse::<isize>();
+                solved = s.chars().take(2).collect::<String>().parse::<isize>().map(|r| 99 - r );
+                attempted = s.chars().skip(2).take(2).collect::<String>().parse::<isize>();
+                time = s.chars().skip(4).take(5).collect::<String>().parse::<isize>();
             } 
             else { // We're dealing with the new format
-                let difference = s.chars().skip(1).take(2).collect::<String>().parse::<isize>().map(|r| 99 - r);
-                let missed = s.chars().skip(8).take(2).collect::<String>().parse::<isize>();
+                let difference = s.chars().take(2).collect::<String>().parse::<isize>().map(|r| 99 - r);
+                let missed = s.chars().skip(7).take(2).collect::<String>().parse::<isize>();
                 
                 solved = difference.and_then(|d| missed.clone().map(|m| d + m) );
                 attempted = solved.clone().and_then(|s| missed.map(|m| s + m));
-                time = s.chars().skip(3).take(5).collect::<String>().parse::<isize>();
+                time = s.chars().skip(2).take(5).collect::<String>().parse::<isize>();
             }
 
             if solved.is_ok() && attempted.is_ok() && time.is_ok() {
-                output = ResultValue::Multi { time: time.unwrap(), solved: solved.unwrap(), attempted: attempted.unwrap() }
+                output = ResultValue::Multi { time: time.unwrap(), solved: solved.unwrap(), attempted: attempted.unwrap() };
             }
             else {
                 output = ResultValue::None;
@@ -122,7 +125,7 @@ impl ResultValue {
     fn valid(&self) -> bool {
         match self {  // If there is a valid result, keep incrementing ranks (invalid results get equal last)
             ResultValue::DNF | ResultValue::DNS | ResultValue::None              => false,
-            ResultValue::Multi { time, solved, attempted } if solved < attempted => false,
+            ResultValue::Multi { time, solved, attempted } if (attempted - solved) < 0 => false,
             _                                                                    => true,
         }
     }
@@ -155,6 +158,34 @@ impl Ord for ResultValue {
 impl Default for ResultValue {
     fn default() -> Self {
         ResultValue::None
+    }
+}
+
+impl std::fmt::Display for ResultValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+
+        fn time_to_string(time: isize) -> String {
+            let cs = time % 100;
+            let s = (time / 100) % 60;
+            let m = (time / 6000) % 60;
+            let h = (time / 6000) / 60;
+            let time_vec = vec![(h, ":"), (m, ":"), (s, "."), (cs, "")];
+            time_vec.iter()
+                .skip_while(|(val, sep)| (*val == 0) && (*sep != ".")) 
+                .enumerate()
+                .map(|(i, (val, sep))| if i > 0 { format!("{val:0>2}{sep}") }  else { format!("{val}{sep}") } )
+                .collect::<Vec<_>>()
+                .join("")
+        } 
+
+        match self {
+            ResultValue::Multi { time, solved, attempted } => write!(f, "{}/{} {}", solved, attempted, time_to_string(time * 100).strip_suffix(".00").unwrap()),
+            ResultValue::Time( time ) => write!(f, "{}", time_to_string(*time)),
+            ResultValue::Moves( moves ) => write!(f, "{:.2}", (*moves as f64)/100.0),
+            ResultValue::DNF => write!(f, "DNF"),
+            ResultValue::None => write!(f, ""),
+            ResultValue::DNS => write!(f, "DNS")
+        }
     }
 }
 
@@ -202,6 +233,27 @@ impl Event {
         "clock"
     ];
 
+    const EVENT_DISPLAY_STRINGS: [& 'static str; 18] = [
+        "Skewb", 
+        "2x2", 
+        "3x3", 
+        "3BLD", 
+        "OH", 
+        "MBLD", 
+        "FM", 
+        "feet 🤢", 
+        "4x4", 
+        "4BLD", 
+        "5x5", 
+        "5BLD", 
+        "6x6", 
+        "7x7", 
+        "Squan", 
+        "Pyra", 
+        "Mega", 
+        "Clock"
+    ];
+
     pub fn str_to_index(eventId: &str) -> usize {
         match eventId {
             "skewb" => 0,
@@ -229,6 +281,10 @@ impl Event {
     pub fn iter() -> std::slice::Iter<'static, Self> {
         static Events: [Event; 18] = [ Event::_skewb, Event::_2, Event::_3, Event::_3bld, Event::_3oh, Event::_3mbld, Event::_3fm, Event::_3ft, Event::_4, Event::_4bld, Event::_5, Event::_5bld, Event::_6, Event::_7, Event::_sq1, Event::_pyram, Event::_minx, Event::_clock];
         Events.iter()
+    }
+
+    pub fn to_nice_str(&self) -> &str {
+        Self::EVENT_DISPLAY_STRINGS[*self as usize]
     }
 }
 
@@ -304,81 +360,192 @@ impl Cuber {
 }
 
 pub trait ToHtml {
-    type NodeType: FlowContent<String>;
-    fn to_html(&self) -> Box<Self::NodeType>;
     fn to_html_string(&self) -> String;
 }
 
 impl<T: std::fmt::Display> ToHtml for T {
-    type NodeType = TextNode<String>;
-    fn to_html(&self) -> Box<Self::NodeType> {
-        text!("{}", self.to_string())
-    }
-    
     fn to_html_string(&self) -> String {
         self.to_string()
     }
 }
 
+pub trait Labelled {
+    fn get_label(&self) -> String;
+}
+
+pub trait PageItem : Labelled + ToHtml {}
+
 #[derive(Clone)]
 pub struct RankRow<'a, S, D, const N: usize> where S: Ord {
+    pub rank: usize,
     pub score: S,
     pub data: [D; N],
     pub person: &'a Cuber,
 }
 
-pub struct RankPage<'a, S, D, const N: usize> where S: Ord {
-    pub title: String,
+pub struct RankTable<'a, S, D, const N: usize> where S: Ord + std::fmt::Display, D: ToHtml {
+    pub label: String,
     pub rows: Vec<RankRow<'a, S, D, N>>,
     pub headers: [&'static str; N]
 }
 
-impl<'a, S, D, const N: usize> RankPage<'a, S, D, N> 
-where 
-    S: Ord, 
-    S: std::fmt::Display, 
-    D: ToHtml ,
-    D::NodeType: FlowContent<String> {
-    pub fn to_html(&self) -> String {
-        let dom: DOMTree<String> = html!(
-            <html>
-                <head>
-                    <title> {text!("{}", self.title)} </title>
-                    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous"></link>
-                    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js" integrity="sha384-HwwvtgBNo3bZJJLYd8oVXjrBZt8cqVSpeBNS5n7C8IVInixGAoxmnlMuBnhbgrkm" crossorigin="anonymous"></script>
-                </head>
-                <body data-bs -theme = "dark">
-                    <h1> {text!("{}", self.title)} </h1>
-                    <table class="table table-striped" >
-                        <tr>
-                            <th> "Rank" </th>
-                            <th> "Competitor" </th>
-                            <th> {text!("{}", self.title)} </th>
-                            {self.headers.map(|s| html!(<th> {text!("{}", s)} </th>))}
-                        </tr>
-                        
-                        {self.rows.iter().enumerate().map(|(i, row)| html!( 
-                            <tr>  
-                                <td>{i.to_html()}</td>
-                                <td> {text!("{}", row.person.name)} </td>
-                                <td> {text!("{}", row.score )} </td>
-                                {row.data.iter().map(|d| html!(<td> {d.to_html_string()} </td>) )}
-                            </tr> 
-                            )
-                        )}
-                    </table>
-                </body>
-            </html>
-        );
-        dom.to_string()
+impl<S: Ord + std::fmt::Display, D: ToHtml, const N: usize> Labelled for RankTable<'_, S, D, N> {
+    fn get_label(&self) -> String {
+        self.label.to_string()
+    }
+}
+
+impl<S: Ord + std::fmt::Display, D: ToHtml, const N: usize> PageItem for RankTable<'_, S, D, N> {}
+
+impl<S: Ord + std::fmt::Display, D: ToHtml, const N: usize> ToHtml for RankTable<'_, S, D, N> {
+    fn to_html_string(&self) -> String {
+        let title = &self.label;
+        let headers = self.headers.map(|s| format!("<th> {s} </th>")).join("");
+        let rowHtml = self.rows.iter().map(|row| {
+            let rowDataHtml = row
+                .data
+                .iter()
+                .map(|d| {let html = d.to_html_string(); format!("<td> {html} </td>") } )
+                .collect::<Vec<String>>()
+                .join("");
+            let rank = row.rank;
+            let name = &row.person.name;
+            let score = &row.score;
+            format!(r#"
+                <tr>  
+                    <td>{rank}</td>
+                    <td> {name} </td>
+                    <td> {score} </td>
+                    {rowDataHtml}
+                </tr> 
+                "#)
+        }).collect::<Vec<String>>().join("");
+
+        format!(r#"
+            <table class="table table-striped" >
+                <tr>
+                    <th> Rank </th>
+                    <th> Competitor </th>
+                    <th> Result </th>
+                    {headers}
+                </tr>
+                {rowHtml}
+            </table>
+        "#)
     }
 
-    pub fn to_html_file(&self, path: &str) {
-        let mut output = std::fs::File::create(path);
-        if output.is_ok() {
-            output.unwrap().write_all(self.to_html().as_bytes());
+}
+
+
+pub struct PageData {
+    title: String,
+    path: String,
+}
+pub struct Site {
+    pages: Vec<PageData>,
+    web_url: String,
+}
+
+impl Site {
+    pub fn new(web_url: &str) -> Self {
+        Site {
+            pages: Vec::<PageData>::new(),
+            web_url: web_url.to_string(),
         }
     }
+
+    pub fn to_html_file<T>(&mut self, page: &RankPage<T>) where T:PageItem {
+        let path = format!("html_output/{}.html", page.name);
+        let mut output = std::fs::File::create( path.to_string() );
+    
+        let title = &page.title;
+
+        self.pages.push(PageData { title: title.to_string(), path: path });
+    
+        let tables = page.tables.iter()
+        .map(|i| format!(r#"<div class="tab-pane fade" id="{}" role="tabpanel" tabindex="0">"#, i.get_label()).to_string() + &i.to_html_string() + "</div>")
+        .collect::<Vec<String>>()
+        .join("\n");
+    
+        let tabs = page.tables.iter()
+        .map(|i| format!(r##"  
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="home-tab" data-bs-toggle="tab" data-bs-target="#{}" type="button" role="tab" aria-controls="home-tab-pane" aria-selected="true">{}</button>
+            </li>
+            "##, i.get_label(), i.get_label())
+        )
+        .collect::<Vec<String>>()
+        .join("\n");
+        
+        let home_url = self.web_url.to_string() + "/home.html";
+
+        let page = format!(r#"
+        <html>
+            <head>
+                <title> {title} </title>
+                <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous"></link>
+                <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js" integrity="sha384-HwwvtgBNo3bZJJLYd8oVXjrBZt8cqVSpeBNS5n7C8IVInixGAoxmnlMuBnhbgrkm" crossorigin="anonymous"></script>
+            </head>
+            <body data-bs-theme="dark" class="p-5">
+                <h1> {title} </h1> 
+                <a href="{home_url}" class="fs-2 btn btn-secondary m-4 position-fixed top-0 end-0" >
+                    <i class="bi bi-house-door-fill"></i>
+                </a>
+                <ul class="nav nav-tabs role="tablist">
+                    {tabs}
+                </ul>
+                <div class="tab-content">
+                    {tables}
+                </div>
+            </body>
+        </html>
+        "#);
+    
+        if output.is_ok() {
+            output.unwrap().write_all(page.as_bytes());
+        }
+    }
+
+    pub fn gen_homepage(&self) {
+        let mut output = std::fs::File::create( "html_output/home.html" );   
+
+        let links = self.pages
+        .iter()
+        .map(|p| format!(r##"<a href="{}" class="list-group-item list-group-item-action">{}</a>"##, self.web_url.to_string() + "/" + &p.path, p.title, ))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+        let page = format!(r#"
+        <html>
+            <head>
+                <title> WA Speedcubing Statistics </title>
+                <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous"></link>
+                <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js" integrity="sha384-HwwvtgBNo3bZJJLYd8oVXjrBZt8cqVSpeBNS5n7C8IVInixGAoxmnlMuBnhbgrkm" crossorigin="anonymous"></script>
+            </head>
+            <body data-bs-theme="dark" class="p-5">
+                <h1> WA Speedcubing Statistics </h1> 
+                <div class="list-group list-group-flush">
+                    {links}
+                </div>
+            </body>
+        </html>
+        "#);
+    
+        if output.is_ok() {
+            output.unwrap().write_all(page.as_bytes());
+        }
+    }
+
+}
+
+
+
+pub struct RankPage<T> where T: PageItem {
+    pub title: String,
+    pub name: String,
+    pub tables: Vec<T> 
 }
 
 #[tokio::main]
@@ -467,9 +634,127 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Total:{}", wa_cubers.len());
 
-    let (sor_avg, sor_single) = get_sor_pages(&wa_cubers);
-    sor_avg.to_html_file("sor_avg.html");
-    sor_single.to_html_file("sor_single.html");
+    let mut site = Site::new("idk");
+
+    let mut single_sor_hashmap = FxHashMap::from_iter(
+        wa_cubers.iter()
+        .map(|c|
+            (
+                c.id.to_owned(),
+                RankRow {
+                    rank: 0,
+                    score: 0,
+                    data: [SORRank::Blank; 18],
+                    person: c
+                }
+            )
+        )
+    );
+
+    let mut average_sor_hashmap = FxHashMap::from_iter(
+        wa_cubers.iter()
+        .map(|c|
+            (
+                c.id.to_owned(),
+                RankRow {
+                    rank: 0,
+                    score: 0,
+                    data: [SORRank::Blank; 18],
+                    person: c
+                }
+            )
+        )
+    );
+
+    for event in Event::iter() {
+        let mut single_ranks = wa_cubers.iter()
+            .map(|c| RankRow { score: c.get_single(*event), rank: 0 as usize, data: [0 as usize; 0], person: c} )
+            .collect::<Vec<_>>();
+        let mut average_ranks = wa_cubers.iter()
+        .map(|c| RankRow { score: c.get_average(*event), rank: 0 as usize, data: [0 as usize; 0], person: c} )
+        .collect::<Vec<_>>();
+        rank(&mut single_ranks);
+        rank(&mut average_ranks);
+        
+        for row in single_ranks.iter() {
+            if single_ranks.last().unwrap().rank == row.rank {
+                single_sor_hashmap.get_mut(&row.person.id).unwrap().data[*event as usize] = SORRank::Default(row.rank);
+            }
+            else {
+                single_sor_hashmap.get_mut(&row.person.id).unwrap().data[*event as usize] = SORRank::Normal(row.rank);
+            }
+        }
+
+        for row in average_ranks.iter() {
+            if *event == Event::_3mbld {
+                average_sor_hashmap.get_mut(&row.person.id).unwrap().data[*event as usize] = SORRank::Blank;
+            }
+            else if average_ranks.last().unwrap().rank == row.rank {
+                average_sor_hashmap.get_mut(&row.person.id).unwrap().data[*event as usize] = SORRank::Default(row.rank);
+            }
+            else {
+                average_sor_hashmap.get_mut(&row.person.id).unwrap().data[*event as usize] = SORRank::Normal(row.rank);
+            }
+        }
+
+        let page = RankPage {
+            name:  event.to_string(), 
+            title: format!("WA {} Rankings", event.to_nice_str()), 
+            tables: vec![
+                RankTable { 
+                    label: "Single".to_string(), 
+                    rows: single_ranks.into_iter().filter(|r| r.score.valid()).collect::<Vec<_>>(),
+                    headers: ["";0]
+                },
+                RankTable { 
+                    label: "Average".to_string(), 
+                    rows: average_ranks.into_iter().filter(|r| r.score.valid()).collect::<Vec<_>>(),
+                    headers: ["";0]
+                }
+            ]
+        };
+
+        site.to_html_file(&page);
+    }
+
+    let mut single_sor = single_sor_hashmap
+        .into_iter()
+        .map(|(_, mut v)| {
+            v.score = v.data.iter().map(|d| d.get_value()).sum();
+            v
+        })
+        .collect::<Vec<_>>();
+    rank(&mut single_sor);
+
+    let mut average_sor = average_sor_hashmap
+    .into_iter()
+    .map(|(_, mut v)| {
+        v.score = v.data.iter().map(|d| d.get_value()).sum();
+        v
+    })
+    .collect::<Vec<_>>();
+    rank(&mut average_sor);
+    
+    let sor_page = RankPage {
+        name: "sor".to_string(),
+        title: "WA Sum Of Ranks".to_string(),
+        tables: vec![ 
+            RankTable {
+                label: "Single".to_string(),
+                rows: single_sor,
+                headers: Event::EVENT_DISPLAY_STRINGS
+            },
+            RankTable {
+                label: "Average".to_string(),
+                rows: average_sor,
+                headers: Event::EVENT_DISPLAY_STRINGS
+            }
+        ]
+    };
+
+    site.to_html_file(&sor_page);
+
+    site.gen_homepage();
 
     Ok(())
 }
@@ -492,15 +777,6 @@ impl SORRank {
 }
 
 impl ToHtml for SORRank {
-    type NodeType = span<String>;
-    fn to_html(&self) -> Box<span<String>> {
-        match self {
-            SORRank::Blank => html!(<span> </span>),
-            SORRank::Normal(r) => html!(<span> {text!("{}", r)} </span>),
-            SORRank::Default(r) => html!(<span style="color: var(--bs-orange);"> {text!("{}", r)} </span>)
-        }
-    }
-
     fn to_html_string(&self) -> String {
         match self {
             SORRank::Blank => "<span> </span>".to_string(),
@@ -510,54 +786,19 @@ impl ToHtml for SORRank {
     }
 }
 
-fn rank_for_event(rows: &mut Vec<RankRow<usize, SORRank, 18>>, event: &Event, key: fn(&Cuber, Event) -> ResultValue ) {
-    rows.sort_by_key(|r| key(r.person, *event));
+fn rank<T, S, const N: usize>(rows: &mut Vec<RankRow<S, T, N>>) where S: Ord + Copy {
+    rows.sort_by_key(|r| r.score);
 
     for i in 0..rows.len() {
-        let cur_result = key(rows[i].person, *event);
+        let cur_result = rows[i].score;
         let mut rank = 0;
-        if i > 0 && cur_result == key(rows[i-1].person, *event) { // if current == previous, copy previous rank
-            rank = rows[i-1].data[*event as usize].get_value();
+        if i > 0 && cur_result == rows[i-1].score { // if current == previous, copy previous rank
+            rank = rows[i-1].rank;
         }
         else {
             rank = i + 1;
         }
 
-        // if invalid result and equal last, use default enum option
-        if !cur_result.valid() && cur_result == key(rows[rows.len() -1].person, *event) { 
-            rows[i].data[*event as usize ] = SORRank::Default(rank);
-        }
-        else {
-            rows[i].data[*event as usize ] = SORRank::Normal(rank);
-        }
+        rows[i].rank = rank;
     }
-}
-
-fn get_sor_pages(cubers: &Vec<Cuber>) -> (RankPage<usize, SORRank, 18>, RankPage<usize, SORRank, 18>) {
-    // Make vecs of rows (row for each cuber, vecs for sor single and average)
-    let mut sor_rows_avg = cubers.iter()
-        .map(|c| RankRow { score: usize::MAX, data: [SORRank::Blank; 18], person: c } )
-        .collect::<Vec<RankRow<usize, SORRank, 18>>>();
-    let mut sor_rows_single = sor_rows_avg.to_vec();
-
-    // Loop through events and sort row vecs by PR single/avg in that event
-    for event in Event::iter() {
-        if(*event != Event::_3mbld) {
-            rank_for_event(&mut sor_rows_avg, event, |c, e| c.get_average(e));
-        }
-
-        rank_for_event(&mut sor_rows_single, event, |c, e| c.get_single(e));
-    }
-
-    for i in 0..cubers.len() {
-        sor_rows_avg[i].score = sor_rows_avg[i].data.iter().map(|d| d.get_value()).sum();
-        sor_rows_single[i].score = sor_rows_single[i].data.iter().map(|d| d.get_value()).sum();
-    }
-        
-    sor_rows_avg.sort_by_key(|r| r.score);
-    sor_rows_single.sort_by_key(|r| r.score);
-
-    ( RankPage { title: "SOR (Average)".to_string(), rows: sor_rows_avg, headers: Event::EVENTS }, 
-    RankPage { title: "SOR (Single)".to_string(), rows: sor_rows_single, headers: Event::EVENTS } )
-    
 }
