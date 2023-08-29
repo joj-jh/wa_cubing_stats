@@ -15,13 +15,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
     - name: Run
       run: cargo run --release
-    - uses: actions/checkout@v2
+    - name: Check Directory Contents
+      run: ls
+    - uses: actions/checkout@v3
     - run: |
         git config user.name github-actions
         git config user.email github-actions@github.com
-        git add .
+        git add docs/*
         git commit -m "generated"
         git push
