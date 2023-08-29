@@ -455,7 +455,7 @@ impl Site {
     }
 
     pub fn to_html_file<T>(&mut self, page: &RankPage<T>) where T:PageItem {
-        let path = format!("html_output/{}.html", page.name);
+        let path = format!("docs/{}.html", page.name);
         let mut output = std::fs::File::create( path.to_string() );
     
         let title = &page.title;
@@ -508,7 +508,7 @@ impl Site {
     }
 
     pub fn gen_homepage(&self) {
-        let mut output = std::fs::File::create( "html_output/home.html" );   
+        let mut output = std::fs::File::create( "index.html" );   
 
         let links = self.pages
         .iter()
