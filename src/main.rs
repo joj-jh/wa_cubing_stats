@@ -465,8 +465,6 @@ impl Site {
         .collect::<Vec<String>>()
         .join("\n");
         
-        let home_url = self.web_url.to_string() + "/home.html";
-
         let page = format!(r#"
         <html>
             <head>
@@ -477,7 +475,7 @@ impl Site {
             </head>
             <body data-bs-theme="dark" class="p-5">
                 <h1> {title} </h1> 
-                <a href="{home_url}" class="fs-2 btn btn-secondary m-4 position-fixed top-0 end-0" >
+                <a href="index.html" class="fs-2 btn btn-secondary m-4 position-fixed top-0 end-0" >
                     <i class="bi bi-house-door-fill"></i>
                 </a>
                 <ul class="nav nav-tabs role="tablist">
