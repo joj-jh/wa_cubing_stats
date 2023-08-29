@@ -19,8 +19,9 @@ jobs:
     - name: Run
       run: cargo run --release
     - name: Check Directory Contents
-      run: ls
-    - uses: actions/checkout@v3
+      run: | 
+        ls
+        ls ./docs
     - run: |
         git config user.name github-actions
         git config user.email github-actions@github.com
