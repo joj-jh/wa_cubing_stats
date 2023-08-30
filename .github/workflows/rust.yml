@@ -1,32 +1,32 @@
-name: Rust
+# name: Rust
 
-on:
-  workflow_dispatch:
-  push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
+# on:
+#   workflow_dispatch:
+#   push:
+#     branches: [ "master" ]
+#   pull_request:
+#     branches: [ "master" ]
 
-env:
-  CARGO_TERM_COLOR: always
+# env:
+#   CARGO_TERM_COLOR: always
 
-jobs:
-  build:
+# jobs:
+#   build:
 
-    runs-on: ubuntu-latest
+#     runs-on: ubuntu-latest
 
-    steps:
-    - uses: actions/checkout@v3
-    - name: Run
-      run: cargo run --release
-    - name: Check Directory Contents
-      run: | 
-        ls
-        ls ./docs
-    - run: |
-        git config user.name github-actions
-        git config user.email github-actions@github.com
-        git add docs/*
-        git add index.html
-        git commit -m "generated"
-        git push
+#     steps:
+#     - uses: actions/checkout@v3
+#     - name: Run
+#       run: cargo run --release
+#     - name: Check Directory Contents
+#       run: | 
+#         ls
+#         ls ./docs
+#     - run: |
+#         git config user.name github-actions
+#         git config user.email github-actions@github.com
+#         git add docs/*
+#         git add index.html
+#         git commit -m "generated"
+#         git push
