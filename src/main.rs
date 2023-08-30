@@ -384,6 +384,12 @@ impl ToHtml for usize {
     }
 }
 
+impl ToHtml for ResultValue {
+    fn to_html_string(&self) -> String {
+        self.to_string()
+    }
+}
+
 pub trait Labelled {
     fn get_label(&self) -> String;
 }
@@ -398,21 +404,21 @@ pub struct RankRow<'a, S, D, const N: usize> where S: PartialOrd {
     pub person: &'a Cuber,
 }
 
-pub struct RankTable<'a, S, D, const N: usize> where S: PartialOrd + std::fmt::Display, D: ToHtml {
+pub struct RankTable<'a, S, D, const N: usize> where S: PartialOrd + ToHtml, D: ToHtml {
     pub label: String,
     pub rows: Vec<RankRow<'a, S, D, N>>,
     pub headers: [&'static str; N]
 }
 
-impl<S: PartialOrd + std::fmt::Display, D: ToHtml, const N: usize> Labelled for RankTable<'_, S, D, N> {
+impl<S: PartialOrd + ToHtml, D: ToHtml, const N: usize> Labelled for RankTable<'_, S, D, N> {
     fn get_label(&self) -> String {
         self.label.to_string()
     }
 }
 
-impl<S: PartialOrd + std::fmt::Display, D: ToHtml, const N: usize> PageItem for RankTable<'_, S, D, N> {}
+impl<S: PartialOrd + ToHtml, D: ToHtml, const N: usize> PageItem for RankTable<'_, S, D, N> {}
 
-impl<S: PartialOrd + std::fmt::Display, D: ToHtml, const N: usize> ToHtml for RankTable<'_, S, D, N> {
+impl<S: PartialOrd + ToHtml, D: ToHtml, const N: usize> ToHtml for RankTable<'_, S, D, N> {
     fn to_html_string(&self) -> String {
         let title = &self.label;
         let headers = self.headers.map(|s| format!("<th> {s} </th>")).join("");
@@ -425,7 +431,7 @@ impl<S: PartialOrd + std::fmt::Display, D: ToHtml, const N: usize> ToHtml for Ra
                 .join("");
             let rank = row.rank;
             let name = &row.person.name;
-            let score = &row.score;
+            let score = &row.score.to_html_string();
             format!(r#"
                 <tr>  
                     <td>{rank}</td>
@@ -691,8 +697,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut average_ranks = wa_cubers.iter()
         .map(|c| RankRow { score: c.get_average(*event), rank: 0 as usize, data: [0 as usize; 0], person: c} )
         .collect::<Vec<_>>();
-        rank(&mut single_ranks);
-        rank(&mut average_ranks);
+        rank(&mut single_ranks, true);
+        rank(&mut average_ranks, true);
         
         // Add records
         average_records[*event as usize] = average_ranks[0].score;
@@ -747,7 +753,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             v
         })
         .collect::<Vec<_>>();
-    rank(&mut single_sor);
+    rank(&mut single_sor, true);
 
     let mut average_sor = average_sor_hashmap
     .into_iter()
@@ -756,7 +762,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         v
     })
     .collect::<Vec<_>>();
-    rank(&mut average_sor);
+    rank(&mut average_sor, true);
     
     let sor_page = RankPage {
         name: "sor".to_string(),
@@ -799,7 +805,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         )
         .collect::<Vec<_>>();
-    rank(&mut kinch_rows);
+    rank(&mut kinch_rows, false);
     
     let kinch_page = RankPage {
         name: "kinch".to_string(),
@@ -847,8 +853,13 @@ impl ToHtml for SORRank {
     }
 }
 
-fn rank<T, S, const N: usize>(rows: &mut Vec<RankRow<S, T, N>>) where S: PartialOrd + Copy {
-    rows.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
+fn rank<T, S, const N: usize>(rows: &mut Vec<RankRow<S, T, N>>, ascending: bool) where S: PartialOrd + Copy {
+    if ascending {
+        rows.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
+    }
+    else {
+        rows.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+    }
 
     for i in 0..rows.len() {
         let cur_result = rows[i].score;
