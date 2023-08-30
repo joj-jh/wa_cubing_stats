@@ -483,11 +483,12 @@ impl Site {
         .join("\n");
     
         let tabs = page.tables.iter()
-        .map(|i| format!(r##"  
+        .enumerate()
+        .map(|(idx, tab)| format!(r##"  
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="home-tab" data-bs-toggle="tab" data-bs-target="#{}" type="button" role="tab" aria-controls="home-tab-pane" aria-selected="true">{}</button>
+                <button class="nav-link" id="home-tab" data-bs-toggle="tab" data-bs-target="#{}" type="button" role="tab" aria-controls="home-tab-pane" aria-selected="{}">{}</button>
             </li>
-            "##, i.get_label(), i.get_label())
+            "##, tab.get_label(), (idx == 0).to_string(), tab.get_label())
         )
         .collect::<Vec<String>>()
         .join("\n");
