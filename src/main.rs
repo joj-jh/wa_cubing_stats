@@ -122,12 +122,13 @@ impl ResultValue {
     fn kinch_percent_of(&self, other: ResultValue) -> f64 {
         let get_score = |rv| match rv {
             ResultValue::Moves(s) | ResultValue::Time(s) => s as f64,
-            ResultValue::Multi { time, solved, attempted } => ( (2*solved - attempted) as f64 ) + ( 1.0 - ((time as f64)/3600.0) ),
+            ResultValue::Multi { time, solved, attempted } => 1.0 /( ( ((2*solved) - attempted) as f64 ) + ( 1.0 - ((time as f64)/3600.0) ) ),
             _ => 0.0
         };
 
         if matches!(*self, other)  {
             if get_score(*self) != 0.0 {
+                
                 return (100.0*get_score(other)) / get_score(*self);
             }
             else {
