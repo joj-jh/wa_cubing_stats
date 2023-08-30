@@ -1,6 +1,7 @@
 #![recursion_limit = "1024"]
 use std::io::Write;
 use csv::{ReaderBuilder, DeserializeRecordsIntoIter};
+use reqwest::dns::Resolving;
 use rustc_hash::{FxHashSet, FxHashMap};
 use macros::struct_from_tsv;
 
@@ -115,6 +116,26 @@ impl ResultValue {
             ResultValue::DNF | ResultValue::DNS | ResultValue::None              => false,
             ResultValue::Multi { time, solved, attempted } if (attempted - solved) < 0 => false,
             _                                                                    => true,
+        }
+    }
+
+    fn kinch_percent_of(&self, other: ResultValue) -> f64 {
+        let get_score = |rv| match rv {
+            ResultValue::Moves(s) | ResultValue::Time(s) => s as f64,
+            ResultValue::Multi { time, solved, attempted } => ( (2*solved - attempted) as f64 ) + ( 1.0 - ((time as f64)/3600.0) ),
+            _ => 0.0
+        };
+
+        if matches!(*self, other)  {
+            if get_score(*self) != 0.0 {
+                return (100.0*get_score(other)) / get_score(*self);
+            }
+            else {
+                return 0.0;
+            }
+        }
+        else {
+            panic!();
         }
     }
 }
@@ -351,7 +372,13 @@ pub trait ToHtml {
     fn to_html_string(&self) -> String;
 }
 
-impl<T: std::fmt::Display> ToHtml for T {
+impl ToHtml for f64 {
+    fn to_html_string(&self) -> String {
+        format!("{:.2}", self)
+    }
+}
+
+impl ToHtml for usize {
     fn to_html_string(&self) -> String {
         self.to_string()
     }
@@ -364,28 +391,28 @@ pub trait Labelled {
 pub trait PageItem : Labelled + ToHtml {}
 
 #[derive(Clone)]
-pub struct RankRow<'a, S, D, const N: usize> where S: Ord {
+pub struct RankRow<'a, S, D, const N: usize> where S: PartialOrd {
     pub rank: usize,
     pub score: S,
     pub data: [D; N],
     pub person: &'a Cuber,
 }
 
-pub struct RankTable<'a, S, D, const N: usize> where S: Ord + std::fmt::Display, D: ToHtml {
+pub struct RankTable<'a, S, D, const N: usize> where S: PartialOrd + std::fmt::Display, D: ToHtml {
     pub label: String,
     pub rows: Vec<RankRow<'a, S, D, N>>,
     pub headers: [&'static str; N]
 }
 
-impl<S: Ord + std::fmt::Display, D: ToHtml, const N: usize> Labelled for RankTable<'_, S, D, N> {
+impl<S: PartialOrd + std::fmt::Display, D: ToHtml, const N: usize> Labelled for RankTable<'_, S, D, N> {
     fn get_label(&self) -> String {
         self.label.to_string()
     }
 }
 
-impl<S: Ord + std::fmt::Display, D: ToHtml, const N: usize> PageItem for RankTable<'_, S, D, N> {}
+impl<S: PartialOrd + std::fmt::Display, D: ToHtml, const N: usize> PageItem for RankTable<'_, S, D, N> {}
 
-impl<S: Ord + std::fmt::Display, D: ToHtml, const N: usize> ToHtml for RankTable<'_, S, D, N> {
+impl<S: PartialOrd + std::fmt::Display, D: ToHtml, const N: usize> ToHtml for RankTable<'_, S, D, N> {
     fn to_html_string(&self) -> String {
         let title = &self.label;
         let headers = self.headers.map(|s| format!("<th> {s} </th>")).join("");
@@ -652,7 +679,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
     );
 
+    let mut single_records = [ResultValue::None;18];
+    let mut average_records = [ResultValue::None;18];
+
     for event in Event::iter() {
+        // Calculate ranks in event for single/average
         let mut single_ranks = wa_cubers.iter()
             .map(|c| RankRow { score: c.get_single(*event), rank: 0 as usize, data: [0 as usize; 0], person: c} )
             .collect::<Vec<_>>();
@@ -662,6 +693,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         rank(&mut single_ranks);
         rank(&mut average_ranks);
         
+        // Add records
+        average_records[*event as usize] = average_ranks[0].score;
+        single_records[*event as usize] = single_ranks[0].score;
+        
+
         for row in single_ranks.iter() {
             if single_ranks.last().unwrap().rank == row.rank {
                 single_sor_hashmap.get_mut(&row.person.id).unwrap().data[*event as usize] = SORRank::Default(row.rank);
@@ -740,6 +776,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     site.to_html_file(&sor_page);
 
+    // Calculate Kinch :
+    let mut kinch_rows = wa_cubers.iter()
+        .map(|c| 
+            {
+                let mut kinch_score: f64 = 0.0;
+                let mut data = [0.0 as f64;18];
+                for e in Event::iter() {
+                    let average_kinch = c.get_average(*e).kinch_percent_of(average_records[*e as usize]);
+                    data[*e as usize] = average_kinch;
+
+                    if *e == Event::_3bld || *e == Event::_3mbld || *e == Event::_5bld || *e == Event::_4bld {
+                        let single_kinch = c.get_single(*e).kinch_percent_of(single_records[*e as usize]);
+                        if single_kinch > average_kinch {
+                            data[*e as usize] = single_kinch;
+                        }
+                    }
+                    kinch_score += data[*e as usize];
+                }
+                RankRow { score: kinch_score/18.0, rank: 0 as usize, data: data, person: c} 
+            }
+        )
+        .collect::<Vec<_>>();
+    rank(&mut kinch_rows);
+    
+    let kinch_page = RankPage {
+        name: "kinch".to_string(),
+        title: "WA Kinch Ranks".to_string(),
+        tables: vec![ 
+            RankTable {
+                label: "Ranks".to_string(),
+                rows: kinch_rows,
+                headers: Event::EVENT_DISPLAY_STRINGS
+            }
+        ]
+    };
+
+    site.to_html_file(&kinch_page);
+        
     site.gen_homepage();
 
     Ok(())
@@ -772,8 +846,8 @@ impl ToHtml for SORRank {
     }
 }
 
-fn rank<T, S, const N: usize>(rows: &mut Vec<RankRow<S, T, N>>) where S: Ord + Copy {
-    rows.sort_by_key(|r| r.score);
+fn rank<T, S, const N: usize>(rows: &mut Vec<RankRow<S, T, N>>) where S: PartialOrd + Copy {
+    rows.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
 
     for i in 0..rows.len() {
         let cur_result = rows[i].score;
